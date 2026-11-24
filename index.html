@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mécanisme 4 barres</title>
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--tx:#1c1c1a;--mut:#6b6b66;--bd:#dcdcd6;--c1:#d9480f;--c2:#1c7ed6;--c3:#2f9e44;--c0:#868e96;--acc:#7048e8}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--card:#212120;--tx:#ececE8;--mut:#a0a09a;--bd:#3a3a37;--c1:#ff8a4c;--c2:#5aa9ff;--c3:#5ed17a;--c0:#9aa1a8;--acc:#a78bfa}}
+:root[data-theme="dark"]{--bg:#161615;--card:#212120;--tx:#ececE8;--mut:#a0a09a;--bd:#3a3a37;--c1:#ff8a4c;--c2:#5aa9ff;--c3:#5ed17a;--c0:#9aa1a8;--acc:#a78bfa}
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.4 system-ui,-apple-system,"Segoe UI",sans-serif}
+main{max-width:980px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:0 0 12px;font-weight:600}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:12px;margin-bottom:12px}
+canvas{width:100%;display:block}
+#cv{height:360px}#cp{height:170px}
+.read{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.k{font-size:12px;color:var(--mut)}.v{font-size:24px;font-weight:600;font-variant-numeric:tabular-nums}
+.big{color:var(--c3)}
+.row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+label{font-size:13px;color:var(--mut);display:flex;gap:6px;align-items:center}
+input[type=number]{width:78px;padding:4px 6px;border:1px solid var(--bd);border-radius:6px;background:var(--bg);color:var(--tx)}
+input[type=range]{flex:1;min-width:160px}
+button{padding:6px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);cursor:pointer}
+#msg{color:var(--c1);font-size:13px;min-height:18px}
+</style>
+</head>
+<body>
+<main>
+<h1>Mécanisme 4 barres : angle entre L3 et L0</h1>
+<div class="card read">
+  <div><div class="k">Angle L3 / L0 (en O4)</div><div class="v big" id="a34">–</div></div>
+  <div><div class="k">Angle d’entrée θ1</div><div class="v" id="a1">–</div></div>
+  <div><div class="k">Angle L2 / L3 (en B)</div><div class="v" id="aB">–</div></div>
+  <div><div class="k">Course angulaire de L3</div><div class="v" id="course">–</div></div>
+  <div><div class="k">Min / Max L3-L0</div><div class="v" style="font-size:17px" id="mm">–</div></div>
+</div>
+<div class="card"><canvas id="cv"></canvas><div id="msg"></div></div>
+<div class="card"><canvas id="cp"></canvas></div>
+<div class="card">
+  <div class="row" style="margin-bottom:10px">
+    <button id="play">Pause</button>
+    <button id="br">Inverser l’assemblage</button>
+    <label>θ1 <input type="range" id="sl" min="0" max="360" step="0.1" value="0"></label>
+    <label>Vitesse (°/s) <input type="number" id="sp" value="60" step="10"></label>
+  </div>
+  <div class="row">
+    <label>L0 <input type="number" id="L0" value="41.437" step="0.1"></label>
+    <label>L1 <input type="number" id="L1" value="15" step="0.1"></label>
+    <label>L2 <input type="number" id="L2" value="39" step="0.1"></label>
+    <label>L3 <input type="number" id="L3" value="18.5" step="0.1"></label>
+    <label>Course cible (°) <input type="number" id="tg" value="100" step="1"></label>
+    <button id="fit">Ajuster L3</button>
+    <span class="k" id="ecart"></span>
+  </div>
+</div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const cv=$("cv"),cp=$("cp"),cx=cv.getContext("2d"),px=cp.getContext("2d");
+let P={L0:41.437,L1:15,L2:39,L3:18.5},th=0,playing=true,branch=1,curve=[],mn=0,mx=0,box={};
+const R=Math.PI/180;
+const css=n=>getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+function solve(t){
+  const A={x:P.L1*Math.cos(t),y:P.L1*Math.sin(t)},D={x:P.L0,y:0};
+  const dx=A.x-D.x,dy=A.y-D.y,d=Math.hypot(dx,dy);
+  if(d>P.L2+P.L3||d<Math.abs(P.L2-P.L3)||d===0)return null;
+  const a=(P.L3*P.L3-P.L2*P.L2+d*d)/(2*d),h=Math.sqrt(Math.max(0,P.L3*P.L3-a*a));
+  const mx_=D.x+a*dx/d,my_=D.y+a*dy/d;
+  const B={x:mx_+branch*h*dy/d,y:my_-branch*h*dx/d};
+  // angle en O4 entre O4->O2 (vers -x) et O4->B
+  const bx=B.x-D.x,by=B.y-D.y;
+  const a4=Math.atan2(Math.abs(by),-bx)/R;
+  // angle en B entre B->A et B->O4
+  const u={x:A.x-B.x,y:A.y-B.y},w={x:D.x-B.x,y:D.y-B.y};
+  const aB=Math.acos(Math.max(-1,Math.min(1,(u.x*w.x+u.y*w.y)/(P.L2*P.L3))))/R;
+  return {A,B,D,a4,aB,sg:by>=0?1:-1};
+}
+function recalc(){
+  curve=[];let lo=1e9,hi=-1e9,bx0=0,bx1=P.L0,by0=0,by1=0,bad=0;
+  for(let i=0;i<=360;i++){
+    const s=solve(i*R);curve.push(s?s.a4:null);
+    if(s){lo=Math.min(lo,s.a4);hi=Math.max(hi,s.a4);
+      for(const q of [s.A,s.B]){bx0=Math.min(bx0,q.x);bx1=Math.max(bx1,q.x);by0=Math.min(by0,q.y);by1=Math.max(by1,q.y)}}else bad++;
+  }
+  mn=bad==361?0:lo;mx=bad==361?0:hi;box={bx0,bx1,by0,by1};
+  $("mm").textContent=bad==361?"–":lo.toFixed(1)+"° / "+hi.toFixed(1)+"°";
+  $("course").textContent=bad==361?"–":(hi-lo).toFixed(2)+"°";
+  const ec=hi-lo-(+$("tg").value||0);$("ecart").textContent=bad==361?"":"écart à la cible : "+(ec>=0?"+":"")+ec.toFixed(2)+"°";
+  $("msg").textContent=bad?"Pour ces longueurs, le mécanisme ne peut pas atteindre toutes les positions de θ1 ("+bad+" positions impossibles).":"";
+}
+function size(c){const r=devicePixelRatio||1,w=c.clientWidth,h=c.clientHeight;if(c.width!==w*r||c.height!==h*r){c.width=w*r;c.height=h*r}const g=c.getContext("2d");g.setTransform(r,0,0,r,0,0);return[w,h,g]}
+
+function draw(){
+  const s=solve(th*R);
+  $("a1").textContent=th.toFixed(1)+"°";
+  $("sl").value=th;
+  if(s){$("a34").textContent=s.a4.toFixed(2)+"°";$("aB").textContent=s.aB.toFixed(1)+"°"}
+  else{$("a34").textContent="–";$("aB").textContent="–"}
+  const [w,h,g]=size(cv);g.clearRect(0,0,w,h);
+  const m=40,bw=box.bx1-box.bx0||1,bh=box.by1-box.by0||1;
+  const k=Math.min((w-2*m)/bw,(h-2*m)/bh);
+  const ox=(w-bw*k)/2-box.bx0*k,oy=(h+bh*k)/2+box.by0*k;
+  const T=p=>[ox+p.x*k,oy-p.y*k];
+  const line=(a,b,col,wd)=>{g.beginPath();g.moveTo(...T(a));g.lineTo(...T(b));g.strokeStyle=col;g.lineWidth=wd;g.lineCap="round";g.stroke()};
+  const dot=(p,col,r=6)=>{g.beginPath();g.arc(...T(p),r,0,7);g.fillStyle=col;g.fill()};
+  const O2={x:0,y:0},O4={x:P.L0,y:0};
+  // trajectoire de A
+  g.beginPath();g.arc(...T(O2),P.L1*k,0,7);g.strokeStyle=css("--bd");g.setLineDash([4,4]);g.lineWidth=1;g.stroke();g.setLineDash([]);
+  line(O2,O4,css("--c0"),4);
+  g.fillStyle=css("--mut");g.font="12px system-ui";
+  g.fillText("O2",T(O2)[0]-8,T(O2)[1]+22);g.fillText("O4",T(O4)[0]-8,T(O4)[1]+22);
+  if(!s){g.fillStyle=css("--c1");g.font="600 14px system-ui";g.fillText("Position impossible pour ce θ1 : les barres ne peuvent pas se fermer",12,22)}else{
+  line(O2,s.A,css("--c1"),6);line(s.A,s.B,css("--c2"),5);line(O4,s.B,css("--c3"),6);
+  // course angulaire de L3 (pointillés) entre les deux extrêmes
+  if(isFinite(mn)&&mx>mn){
+    const [qx,qy]=T(O4),r=P.L3*k*0.75,sg=s.sg;
+    const pt=(al,rr)=>[qx+rr*(-Math.cos(al*R)),qy-rr*sg*Math.sin(al*R)];
+    g.strokeStyle=css("--c3");g.fillStyle=css("--c3");g.lineWidth=1.5;g.setLineDash([6,5]);
+    for(const al of [mn,mx]){g.beginPath();g.moveTo(qx,qy);g.lineTo(...pt(al,P.L3*k));g.stroke()}
+    g.beginPath();
+    for(let al=mn;al<=mx+0.01;al+=0.5){const q2=pt(al,r);al===mn?g.moveTo(...q2):g.lineTo(...q2)}
+    g.lineWidth=2.5;g.stroke();g.setLineDash([]);
+    const lm=pt((mn+mx)/2,r+16);
+    g.font="600 13px system-ui";g.textAlign="center";
+    g.fillText("course "+(mx-mn).toFixed(1)+"°",lm[0],lm[1]);g.textAlign="start";
+  }
+  dot(O2,css("--tx"));dot(O4,css("--tx"));dot(s.A,css("--c1"));dot(s.B,css("--c3"));
+  g.fillStyle=css("--mut");g.font="12px system-ui";
+  g.fillText("L1",...T({x:s.A.x/2,y:s.A.y/2}));
+  g.fillText("L2",...T({x:(s.A.x+s.B.x)/2,y:(s.A.y+s.B.y)/2}));
+  g.fillText("L3",...T({x:(O4.x+s.B.x)/2+0.5,y:(s.B.y)/2}));
+  g.fillText("L0",...T({x:P.L0/2,y:-1.5}));
+  }
+  // courbe
+  const [pw,ph,q]=size(cp);q.clearRect(0,0,pw,ph);
+  const L=44,Rr=12,Tp=14,Bt=26,lo=Math.floor((mn-5)/10)*10,hi=Math.ceil((mx+5)/10)*10;
+  const X=t=>L+(pw-L-Rr)*t/360,Y=a=>ph-Bt-(ph-Bt-Tp)*(a-lo)/(hi-lo||1);
+  q.strokeStyle=css("--bd");q.fillStyle=css("--mut");q.font="11px system-ui";q.lineWidth=1;
+  for(let a=lo;a<=hi;a+=10){q.beginPath();q.moveTo(L,Y(a));q.lineTo(pw-Rr,Y(a));q.stroke();q.fillText(a+"°",6,Y(a)+4)}
+  for(let t=0;t<=360;t+=90)q.fillText(t+"°",X(t)-10,ph-8);
+  q.beginPath();let pen=false;
+  curve.forEach((a,i)=>{if(a==null){pen=false;return}pen?q.lineTo(X(i),Y(a)):q.moveTo(X(i),Y(a));pen=true});
+  q.strokeStyle=css("--c3");q.lineWidth=2;q.stroke();
+  if(s){q.fillStyle=css("--acc");q.beginPath();q.arc(X(th),Y(s.a4),5,0,7);q.fill()}
+  q.fillStyle=css("--mut");q.fillText("angle L3/L0 en fonction de θ1",L+6,Tp+2);
+}
+let last=performance.now();
+function loop(now){
+  const dt=(now-last)/1000;last=now;
+  if(playing){th=(th+(+$("sp").value||0)*dt+360)%360;
+    for(let i=0;i<720&&!solve(th*R);i++)th=(th+0.5)%360}
+  draw();requestAnimationFrame(loop);
+}
+$("play").onclick=()=>{playing=!playing;$("play").textContent=playing?"Pause":"Lecture"};
+$("br").onclick=()=>{branch*=-1;recalc()};
+$("sl").oninput=e=>{playing=false;$("play").textContent="Lecture";th=+e.target.value};
+["L0","L1","L2","L3"].forEach(id=>$(id).oninput=e=>{const v=parseFloat(e.target.value);if(v>0){P[id]=v;recalc()}});
+function courseFor(L0,L1,L2,L3){
+  // rotation complète de la manivelle requise, sinon null
+  if(L0+L1>L2+L3||L0-L1<Math.abs(L2-L3))return null;
+  const al=d=>Math.acos((L0*L0+L3*L3-d*d)/(2*L0*L3))/R;
+  return al(L2+L1)-al(Math.abs(L2-L1));
+}
+$("tg").oninput=recalc;
+$("fit").onclick=()=>{
+  const t=+$("tg").value,cur=P.L3;let best=null;
+  for(let L=1;L<=150;L+=0.002){
+    const c=courseFor(P.L0,P.L1,P.L2,L);if(c==null||isNaN(c))continue;
+    if(Math.abs(c-t)<0.02&&(best==null||Math.abs(L-cur)<Math.abs(best-cur)))best=L;
+  }
+  if(best==null){recalc();$("msg").textContent="Aucun L3 ne donne cette course (avec rotation complète de L1) pour les valeurs actuelles de L0, L1 et L2.";return}
+  P.L3=+best.toFixed(2);$("L3").value=P.L3;recalc();
+};
+addEventListener("resize",draw);
+recalc();requestAnimationFrame(loop);
+</script>
+</body>
+</html>
