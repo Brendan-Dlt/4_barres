@@ -25,6 +25,9 @@ input[type=number]{width:78px;padding:4px 6px;border:1px solid var(--bd);border-
 input[type=range]{flex:1;min-width:160px}
 button{padding:6px 12px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx);cursor:pointer}
 #msg{color:var(--c1);font-size:13px;min-height:18px}
+.lock{padding:2px 6px;font-size:14px}.lock.on{border-color:var(--c1)}
+.sol{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--bd);font-size:13px;color:var(--tx)}
+.chg{color:var(--c3);font-weight:600}
 </style>
 </head>
 <body>
@@ -47,13 +50,14 @@ button{padding:6px 12px;border:1px solid var(--bd);border-radius:8px;background:
     <label>Vitesse (°/s) <input type="number" id="sp" value="60" step="10"></label>
   </div>
   <div class="row">
-    <label>L0 <input type="number" id="L0" value="41.437" step="0.1"></label>
-    <label>L1 <input type="number" id="L1" value="15" step="0.1"></label>
-    <label>L2 <input type="number" id="L2" value="39" step="0.1"></label>
-    <label>L3 <input type="number" id="L3" value="18.5" step="0.1"></label>
+    <label>L0 <input type="number" id="L0" value="41.437" step="0.1"><button class="lock" data-k="L0" title="Verrouiller L0">🔓</button></label>
+    <label>L1 <input type="number" id="L1" value="15" step="0.1"><button class="lock" data-k="L1" title="Verrouiller L1">🔓</button></label>
+    <label>L2 <input type="number" id="L2" value="39" step="0.1"><button class="lock" data-k="L2" title="Verrouiller L2">🔓</button></label>
+    <label>L3 <input type="number" id="L3" value="18.5" step="0.1"><button class="lock" data-k="L3" title="Verrouiller L3">🔓</button></label>
     <label>Course cible (°) <input type="number" id="tg" value="100" step="1"></label>
-    <button id="fit">Ajuster L3</button>
+    <button id="fit">Proposer des solutions</button>
     <span class="k" id="ecart"></span>
+    <div id="sol" style="width:100%"></div>
   </div>
 </div>
 </main>
@@ -166,7 +170,7 @@ function courseFor(L0,L1,L2,L3){
   return al(L2+L1)-al(Math.abs(L2-L1));
 }
 $("tg").oninput=recalc;
-$("fit").onclick=()=>{
+const oldFit=()=>{
   const t=+$("tg").value,cur=P.L3;let best=null;
   for(let L=1;L<=150;L+=0.002){
     const c=courseFor(P.L0,P.L1,P.L2,L);if(c==null||isNaN(c))continue;
@@ -174,6 +178,48 @@ $("fit").onclick=()=>{
   }
   if(best==null){recalc();$("msg").textContent="Aucun L3 ne donne cette course (avec rotation complète de L1) pour les valeurs actuelles de L0, L1 et L2.";return}
   P.L3=+best.toFixed(2);$("L3").value=P.L3;recalc();
+};
+const KEYS=["L0","L1","L2","L3"],LK={L0:false,L1:false,L2:false,L3:false};
+document.querySelectorAll(".lock").forEach(b=>b.onclick=()=>{const k=b.dataset.k;LK[k]=!LK[k];b.textContent=LK[k]?"🔒":"🔓";b.classList.toggle("on",LK[k])});
+// valeurs de la longueur i (les autres fixées dans v) qui donnent la course t
+function roots(v,i,t){
+  const out=[],w=v.slice();let pc=null,pl=null;
+  const f=L=>{w[i]=L;const c=courseFor(...w);return c==null||isNaN(c)?null:c-t};
+  for(let L=1;L<=150;L+=0.05){
+    const c=f(L);
+    if(c!=null&&pc!=null&&pc*c<=0){
+      let a=pl,b=L,fa=pc;
+      for(let n=0;n<25;n++){const m=(a+b)/2,fm=f(m);if(fm==null)break;if(fa*fm<=0)b=m;else{a=m;fa=fm}}
+      out.push((a+b)/2);
+    }
+    pc=c;pl=L;
+  }
+  return out;
+}
+$("fit").onclick=()=>{
+  const t=+$("tg").value,cur=KEYS.map(k=>P[k]),free=[0,1,2,3].filter(i=>!LK[KEYS[i]]),cand=[],box=$("sol");
+  if(!free.length){box.textContent="Toutes les longueurs sont verrouillées : déverrouillez-en au moins une.";return}
+  const add=(v,i,L)=>{
+    const w=v.slice();w[i]=L;for(let j=0;j<4;j++)w[j]=+w[j].toFixed(2);
+    if(w.some(x=>x<=0))return;
+    const c=courseFor(...w);if(c==null||isNaN(c)||Math.abs(c-t)>0.15)return;
+    const cost=free.reduce((s,j)=>s+Math.abs(w[j]-cur[j])/cur[j],0);
+    if(cost<0.001)return;
+    cand.push({w,c,cost});
+  };
+  for(const i of free)for(const L of roots(cur,i,t))add(cur,i,L);
+  if(free.length>1)for(let n=0;n<600;n++){
+    const v=cur.slice();for(const j of free)v[j]=cur[j]*(0.6+Math.random());
+    const i=free[Math.floor(Math.random()*free.length)];
+    for(const L of roots(v,i,t))add(v,i,L);
+  }
+  cand.sort((a,b)=>a.cost-b.cost);
+  const pick=[];
+  for(const c of cand){if(pick.length>=5)break;if(pick.every(p=>free.some(j=>Math.abs(p.w[j]-c.w[j])/cur[j]>0.05)))pick.push(c)}
+  box.innerHTML=pick.length?"<div class=\"k\" style=\"margin:6px 0\">Solutions pour une course de "+t+"° (en vert : longueurs modifiées)</div>"+pick.map((p,n)=>
+    "<div class=\"sol\"><span>"+KEYS.map((k,j)=>"<span class=\""+(free.includes(j)&&Math.abs(p.w[j]-cur[j])>0.004?"chg":"")+"\">"+k+" = "+p.w[j]+"</span>").join(" · ")+" → course "+p.c.toFixed(2)+"°</span><button data-n=\""+n+"\">Appliquer</button></div>").join("")
+    :"Aucune solution (avec rotation complète de la manivelle) en ne modifiant que les longueurs déverrouillées. Essayez d’en déverrouiller une de plus.";
+  box.onclick=e=>{const n=e.target.dataset.n;if(n==null)return;const p=pick[n];KEYS.forEach((k,j)=>{P[k]=p.w[j];$(k).value=p.w[j]});recalc()};
 };
 addEventListener("resize",draw);
 recalc();requestAnimationFrame(loop);
